@@ -1,0 +1,321 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checklist App</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f4f7fa;
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      background: #007bff;
+      color: white;
+      padding: 1rem;
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.5rem;
+    }
+    main {
+      flex: 1;
+      padding: 1rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .choice-screen, .checklist-screen {
+      display: none;
+    }
+    .choice-screen.active, .checklist-screen.active {
+      display: block;
+    }
+    .choice-btn {
+      display: block;
+      width: 100%;
+      padding: 1rem;
+      margin: 0.5rem 0;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 1.2rem;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .choice-btn:hover {
+      background: #0056b3;
+    }
+    .task-item {
+      display: flex;
+      align-items: center;
+      padding: 0.5rem;
+      background: white;
+      margin: 0.5rem 0;
+      border-radius: 5px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .task-item input[type="checkbox"] {
+      margin-right: 1rem;
+    }
+    .task-item label {
+      flex: 1;
+    }
+    .report-btn {
+      display: none;
+      background: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      padding: 0.5rem;
+      cursor: pointer;
+    }
+    .task-item input:not(:checked) + label + .report-btn {
+      display: inline-block;
+    }
+    .submit-btn {
+      width: 100%;
+      padding: 1rem;
+      background: #28a745;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 1.2rem;
+      cursor: pointer;
+      margin-top: 1rem;
+    }
+    .submit-btn:hover {
+      background: #218838;
+    }
+    .progress {
+      margin-bottom: 1rem;
+      font-size: 1rem;
+      color: #555;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-content {
+      background: white;
+      padding: 1rem;
+      border-radius: 5px;
+      width: 90%;
+      max-width: 400px;
+    }
+    .modal-content textarea {
+      width: 100%;
+      height: 100px;
+      margin-bottom: 1rem;
+    }
+    footer {
+      text-align: center;
+      padding: 1rem;
+      font-size: 0.8rem;
+      color: #777;
+    }
+    @media (max-width: 600px) {
+      h1 {
+        font-size: 1.2rem;
+      }
+      .choice-btn, .submit-btn {
+        font-size: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Karting Reception Checklist</h1>
+  </header>
+  <main>
+    <section class="choice-screen active">
+      <h2>Select Checklist</h2>
+      <button class="choice-btn" onclick="showChecklist('opening')">Start of Shift Checklist</button>
+      <button class="choice-btn" onclick="showChecklist('closing')">End of Shift Checklist</button>
+    </section>
+    <section class="checklist-screen">
+      <h2 id="checklist-title"></h2>
+      <div class="progress" id="progress">0/0 tasks completed</div>
+      <ul id="task-list"></ul>
+      <button class="submit-btn" onclick="submitChecklist()">Submit Checklist</button>
+    </section>
+  </main>
+  <footer>
+    <p>Data is not stored server-side. Local changes are cleared on submission.</p>
+  </footer>
+  <div class="modal" id="report-modal">
+    <div class="modal-content">
+      <h3>Report Issue</h3>
+      <p id="report-task"></p>
+      <textarea id="report-text" placeholder="Describe the issue..."></textarea>
+      <button onclick="saveReport()">Save Report</button>
+      <button onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+
+  <script>
+    // Task lists from Excel
+    const checklists = {
+      opening: [
+        "POS system powered on and logged in",
+        "Cash drawer counted and recorded",
+        "POS Card payment terminal functional",
+        "Waiver forms stocked (50+ copies)",
+        "Pens available and working (3+ pens)",
+        "QR ticket printer (thermal printer) loaded with paper",
+        "Fiscal coupon printer loaded with paper",
+        "APEX system accessible on PC/iPad",
+        "HyperCard reader functional",
+        "TVs powered on behind the reception desk",
+        "Offer signage placed into their position",
+        "Reception desk clean and organized",
+        "Received handover notes from previous shift"
+      ],
+      closing: [
+        "Cash drawer counted and reconciled",
+        "Card payment totals match POS report",
+        "All QR codes collected from Masters",
+        "QR codes handed to Ops Manager or secured",
+        "Unresolved customer issues documented",
+        "Waiver forms filed or secured",
+        "Reception desk cleaned",
+        "POS system closed properly (if end of day)",
+        "Handover notes written for next shift"
+      ]
+    };
+
+    let currentChecklist = null;
+    let reports = {};
+
+    // Load checklist based on URL parameter or user selection
+    window.onload = () => {
+      const params = new URLSearchParams(window.location.search);
+      const type = params.get('type');
+      if (type === 'opening' || type === 'closing') {
+        showChecklist(type);
+      }
+    };
+
+    function showChecklist(type) {
+      currentChecklist = type;
+      document.querySelector('.choice-screen').classList.remove('active');
+      document.querySelector('.checklist-screen').classList.add('active');
+      document.getElementById('checklist-title').textContent = type === 'opening' ? 'Start of Shift Checklist' : 'End of Shift Checklist';
+      const taskList = document.getElementById('task-list');
+      taskList.innerHTML = '';
+      checklists[type].forEach((task, index) => {
+        const li = document.createElement('li');
+        li.className = 'task-item';
+        li.innerHTML = `
+          <input type="checkbox" id="task-${index}" onchange="updateProgress()">
+          <label for="task-${index}">${task}</label>
+          <button class="report-btn" onclick="openReportModal(${index}, '${task}')">Report Issue</button>
+        `;
+        taskList.appendChild(li);
+      });
+      updateProgress();
+    }
+
+    function updateProgress() {
+      const checkboxes = document.querySelectorAll('#task-list input[type="checkbox"]');
+      const checked = Array.from(checkboxes).filter(cb => cb.checked).length;
+      const total = checklists[currentChecklist].length;
+      document.getElementById('progress').textContent = `${checked}/${total} tasks completed`;
+    }
+
+    function openReportModal(index, task) {
+      document.getElementById('report-task').textContent = `Issue with: ${task}`;
+      document.getElementById('report-modal').dataset.taskIndex = index;
+      document.getElementById('report-modal').style.display = 'flex';
+    }
+
+    function saveReport() {
+      const index = document.getElementById('report-modal').dataset.taskIndex;
+      const text = document.getElementById('report-text').value;
+      if (text) {
+        reports[index] = text;
+      }
+      closeModal();
+    }
+
+    function closeModal() {
+      document.getElementById('report-modal').style.display = 'none';
+      document.getElementById('report-text').value = '';
+    }
+
+    function submitChecklist() {
+      const checkboxes = document.querySelectorAll('#task-list input[type="checkbox"]');
+      const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+      if (!allChecked) {
+        alert('Please complete all tasks or report issues.');
+        return;
+      }
+      let reportSummary = '';
+      for (let index in reports) {
+        reportSummary += `Task ${parseInt(index) + 1}: ${checklists[currentChecklist][index]} - Issue: ${reports[index]}\n`;
+      }
+      const subject = encodeURIComponent(`${currentChecklist} Checklist Submission`);
+      const body = encodeURIComponent(`Checklist: ${currentChecklist}\nStatus: All tasks completed\n${reportSummary ? 'Reported Issues:\n' + reportSummary : 'No issues reported'}`);
+      window.location.href = `mailto:internalservices@example.com?subject=${subject}&body=${body}`;
+      localStorage.clear();
+      reports = {};
+      showChecklist(currentChecklist);
+    }
+  </script>
+</body>
+</html>
